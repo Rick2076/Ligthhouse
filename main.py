@@ -3,6 +3,37 @@ import sys
 import psycopg
 import datetime
 
+def pushToDatabase(metadata, current_date):
+
+    tuples = metadata[1]
+    metadata = metadata[0]
+
+    with psycopg.connect("dbname=northwind user=postgres password=postgres") as conn:
+        with conn.cursor() as cur:
+
+            try:
+                # we mirror the database lkfans 
+                for key in metadata:
+                    query = "create table if not exists " + key + " ("
+                    for column in metadata[key]:
+                        query += column[0] + " " + column[1] + ", "
+                    query = query[:-2]
+                    query += ")"
+                    cur.execute(query)
+                    f = open("data/postgres/" + key + "/" + current_date + "/" + key + ".csv", "r")
+                    try:
+                        while(True):
+                            line = f.readline()
+                            line = line.replace("None", "null")
+                            cur.execute("insert into " + key + " values " + line)
+                            cur.commit
+                    except Exception as e:
+                        print(e)
+                            
+                    f.close()
+            except Exception as e:
+                print(e)
+
 def writeFilePostgres(tableName, current_date, content):
 
     # create a directory for the date stamp if it doesn't exist.
@@ -22,12 +53,17 @@ def writeFilePostgres(tableName, current_date, content):
     tableCSV.close()
 
 def readFromPostgres(current_date):
+
+    metadata = {}
+
     # connecting to the SGBD
-    with psycopg.connect("dbname=northwind user=postgres password=postgres") as conn:
+    # with psycopg.connect("host=0.0.0.0 dbname=northwind user=northwind_user password=thewindisblowing") as conn:
+    with psycopg.connect("dbname=testric user=postgres password=postgres") as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")
             table_names = cur.fetchall()
             # print(table_names)
+            tuples = None
 
             for table in table_names:
                 table = table[0]
@@ -43,9 +79,15 @@ def readFromPostgres(current_date):
                 cur.execute("select * from " + table)
                 tuples = cur.fetchall()
 
-                writeFilePostgres(table, current_date,tuples)
-                
-    
+                writeFilePostgres(table, current_date, tuples)
+
+                # we keep track of the meta data for later handling of the retrieved data.
+                cur.execute("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '" + table + "'")
+
+                metadata[table] = cur.fetchall()
+
+            return (metadata, tuples)
+
 def readFromCSV(current_date):
     # connecting the CSV file to the CSV folder
     try:
@@ -94,10 +136,10 @@ def main():
     current_date = str(time.year) + "-" + str(time.month) + "-" + str(time.day)
 
     # step 1
-    readFromPostgres(current_date)
+    metadata = readFromPostgres(current_date)
     # readFromCSV(current_date)
 
     # step 2
-    # pushToDatabase()
+    pushToDatabase(metadata, current_date)
     
 main()
